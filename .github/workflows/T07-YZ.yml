@@ -1,0 +1,95 @@
+name: T07-YZ
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sast-semgrep:
+    name: SAST - Semgrep (Quality Gate)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.185.0
+    steps:
+      - name: Obtener codigo fuente
+        uses: actions/checkout@v4
+
+      - name: Escanear con Semgrep (reglas oficiales y regla del laboratorio)
+        run: |
+          mkdir -p reports
+          semgrep scan --config p/security-audit --config p/owasp-top-ten \
+            --config semgrep-rules/t07-yz.yml --json \
+            --output reports/semgrep-results.json .
+
+      - name: Publicar reporte Semgrep JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: T07-YZ-semgrep-json
+          path: reports/semgrep-results.json
+          if-no-files-found: warn
+
+      - name: Aplicar Quality Gate SAST (ERROR bloquea)
+        run: python3 scripts/quality_gate_semgrep.py reports/semgrep-results.json
+
+  sca-sbom:
+    name: SCA - Dependency-Check y SBOM CycloneDX
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener codigo fuente
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar dependencias sin scripts de instalacion
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Ejecutar pruebas unitarias
+        run: npm test
+
+      - name: Generar SBOM CycloneDX con Syft
+        uses: anchore/sbom-action@v0.24.2
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: false
+
+      - name: Publicar SBOM generado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: T07-YZ-sbom-cyclonedx
+          path: sbom.cyclonedx.json
+          if-no-files-found: warn
+
+      - name: Preparar directorio para reportes SCA
+        run: mkdir -p reports/dependency-check
+
+      - name: Dependency-Check con politica CVSS 7.0
+        uses: dependency-check/Dependency-Check_Action@1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c
+        with:
+          project: T07-YZ-Cotizador
+          path: .
+          format: ALL
+          out: reports/dependency-check
+          args: >-
+            --failOnCVSS 7
+            --enableExperimental
+
+      - name: Publicar reportes SCA incluso si el job falla
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: T07-YZ-dependency-check
+          path: reports/dependency-check/
+          if-no-files-found: warn

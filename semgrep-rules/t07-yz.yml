@@ -1,0 +1,10 @@
+rules:
+  - id: t07-yz-no-eval
+    message: "Uso de eval() sobre expresiones dinámicas: posible inyección de código (CWE-95)."
+    languages: [javascript]
+    severity: ERROR
+    metadata:
+      cwe: ["CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"]
+      category: security
+      technology: [nodejs]
+    pattern: eval(...)
